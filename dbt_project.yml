@@ -1,7 +1,6 @@
 # dbt project for the Citibike x Weather case study.
 # RAW tables are loaded by setup/02_load_raw.sql. dbt builds everything
 # after that: staging models (typed and cleaned) and marts (for Power BI).
-# Model folders and their settings are added with the first models.
 
 name: citibike_weather
 version: "1.0.0"
@@ -17,3 +16,12 @@ snapshot-paths: ["snapshots"]
 clean-targets:
   - "target"
   - "dbt_packages"
+
+models:
+  citibike_weather:
+    # Every query dbt runs is tagged, so its cost can be told apart from
+    # loading and from Power BI in the Snowflake query history.
+    +query_tag: dbt
+    staging:
+      +schema: staging
+      +materialized: view

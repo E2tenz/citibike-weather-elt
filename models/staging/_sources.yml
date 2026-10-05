@@ -1,0 +1,23 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Source data exactly as loaded from S3 by setup/02_load_raw.sql.
+      Trip values are text and weather records are the original JSON.
+      Every row also records the file and line it came from, and when it
+      was loaded.
+    database: CITIBIKE_DB
+    schema: RAW
+    tables:
+      - name: trips
+        description: >
+          Citibike trips from 1 Jun 2013 to 30 Jun 2018, one row per trip,
+          every value as text (61,468,359 rows). Citibike removes staff
+          trips, test-station trips and trips under 60 seconds before
+          publishing the data.
+      - name: weather
+        description: >
+          OpenWeatherMap readings as JSON, one record per row (57,894 rows),
+          for two places both called New York. Only city ID 5128581, New
+          York City, is used; 5128638 is central New York State.

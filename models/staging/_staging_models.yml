@@ -1,0 +1,182 @@
+version: 2
+
+models:
+  - name: stg_citibike__trips
+    description: >
+      One row per Citibike trip from 1 Jun 2013 to 30 Jun 2018, with every
+      value converted to its type. Built as a table because 61 million rows
+      are read by every model and test downstream. Birth year and gender are
+      left out on purpose (decision 6).
+    data_tests:
+      - dbt_utils.equal_rowcount:
+          arguments:
+            compare_model: source('raw', 'trips')
+    columns:
+      - name: trip_id
+        description: Key for the trip, made from the source file and line number.
+        data_tests:
+          - unique
+          - not_null
+      - name: _source_file
+        description: File the trip came from.
+      - name: _source_row
+        description: Line number in that file.
+      - name: _loaded_at
+        description: When the row was loaded into RAW.
+      - name: started_at
+        description: When the trip started, New York local time.
+        data_tests:
+          - not_null
+      - name: ended_at
+        description: When the trip ended, New York local time.
+        data_tests:
+          - not_null
+      - name: trip_duration_sec
+        description: Trip length in seconds, as published by Citibike.
+        data_tests:
+          - not_null
+      - name: start_station_id
+        description: Start station ID, kept as text.
+      - name: start_station_name
+        description: Start station name.
+      - name: start_station_latitude
+        description: Start station latitude.
+      - name: start_station_longitude
+        description: Start station longitude.
+      - name: end_station_id
+        description: End station ID, kept as text. Empty when no end station was recorded.
+      - name: end_station_name
+        description: End station name.
+      - name: end_station_latitude
+        description: End station latitude.
+      - name: end_station_longitude
+        description: End station longitude.
+      - name: bike_id
+        description: Bike ID, kept as text.
+      - name: membership_type
+        description: Membership plan name. Filled for 2018 trips only, so not used in the analysis (decision 15).
+      - name: user_type
+        description: >
+          Subscriber (annual member), Customer (24-hour or 3-day pass) or
+          Unknown, for the 51,780 trips with no user type (decision 16).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["Subscriber", "Customer", "Unknown"]
+      - name: trip_date
+        description: Date the trip started, New York local time.
+      - name: trip_hour
+        description: Hour the trip started, New York local time.
+      - name: has_end_station
+        description: False when the trip has no end station recorded. Flagged, not removed (decision 7).
+      - name: is_over_24_hours
+        description: True when the trip lasted more than 24 hours, which usually means the bike was not docked properly.
+
+  - name: stg_weather__readings
+    description: >
+      One row per New York City weather reading (city ID 5128581), with time
+      in UTC and New York local time, temperature in Celsius, and rain and
+      snow flags taken from every condition label in the reading. Readings
+      that repeat a time are reduced to one.
+    columns:
+      - name: observed_at_utc
+        description: Time of the reading in UTC, as stored in the source.
+        data_tests:
+          - unique
+          - not_null
+      - name: observed_at_local
+        description: Time of the reading in New York local time, adjusted for daylight saving.
+        data_tests:
+          - not_null
+      - name: temp_c
+        description: Temperature in degrees Celsius, converted from Kelvin.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -30
+                max_value: 45
+      - name: temp_min_c
+        description: Minimum temperature reported with the reading, Celsius.
+      - name: temp_max_c
+        description: Maximum temperature reported with the reading, Celsius.
+      - name: humidity_pct
+        description: Relative humidity, percent.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: pressure_hpa
+        description: Air pressure, hPa (unit assumed, assumption 4).
+      - name: cloud_cover_pct
+        description: Cloud cover, percent.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: wind_speed_ms
+        description: Wind speed, metres per second (unit assumed, assumption 4).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 50
+      - name: wind_gust_ms
+        description: Wind gust speed, metres per second. Only in some readings.
+      - name: rain_1h_mm
+        description: Rain in the last hour, mm. Missing from most readings, even rainy ones, so missing does not mean dry.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+      - name: rain_3h_mm
+        description: Rain in the last 3 hours, mm. Only in some readings.
+      - name: snow_1h_mm
+        description: >
+          Snow in the last hour, mm. Only in some readings. Warns above 50 mm,
+          to show the suspicious 102 mm reading found in exploration.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 50
+              config:
+                severity: warn
+      - name: main_condition
+        description: First condition label in the reading, for display only.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - Clear
+                  - Clouds
+                  - Rain
+                  - Mist
+                  - Snow
+                  - Haze
+                  - Fog
+                  - Drizzle
+                  - Thunderstorm
+                  - Smoke
+                  - Squall
+                  - Dust
+      - name: main_condition_detail
+        description: Description of the first condition, for example light rain.
+      - name: condition_labels
+        description: Every condition label in the reading, for example Mist and Rain.
+      - name: is_rain
+        description: True when any label is Rain, Drizzle or Thunderstorm (decisions 8 and 10).
+        data_tests:
+          - not_null
+      - name: is_snow
+        description: True when any label is Snow (decisions 8 and 10).
+        data_tests:
+          - not_null
+      - name: _source_file
+        description: File the reading came from.
+      - name: _source_row
+        description: Record number in that file.
