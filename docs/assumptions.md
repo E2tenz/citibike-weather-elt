@@ -29,6 +29,7 @@ The lab was written to teach Snowflake features, not to analyse weather, so thes
 - Some trips have no end station (ID, name and coordinates all blank).
 - Some very short trips start and end at the same station (84 seconds).
 - Timestamps have no time zone.
+- Citibike's own description of the data ([System Data page](https://citibikenyc.com/system-data)): a Customer has a 24-hour or 3-day pass and a Subscriber is an annual member. Before publishing, Citibike removes trips taken by staff, trips to or from test stations, and trips under 60 seconds.
 
 **Weather**
 - The files hold two locations, both called "New York", with almost the same number of records:
@@ -136,12 +137,12 @@ Every start time converts to a timestamp, so every trip falls in one of the 24 h
 | 3 | Convert weather time from UTC to New York local time before joining | Trips are in local time. Without converting, every match would be 4 to 5 hours out. |
 | 4 | Convert temperature from Kelvin to Celsius | Kelvin is not meaningful to a business audience. |
 | 5 | Combine weather readings to one row per hour (and per day) before joining to trips | Some hours have several readings, which would otherwise duplicate trips in the join. |
-| 6 | Keep birth year and gender out of the reporting models | They are not needed to answer the weather question, so leaving them out reduces personal data in the reports. User type stays, because it is central to the analysis. |
+| 6 | Keep birth year and gender out of every dbt model; they stay only in RAW | They are not needed to answer the weather question, so leaving them out reduces personal data from the first model onwards. User type stays, because it is central to the analysis. |
 | 7 | Flag problem records rather than delete them | For example, trips with no end station stay in the data with a flag, so I can always explain what was excluded and why. |
 | 8 | Check every condition in a reading, not just the first, when flagging rain or snow | 21% of readings list more than one condition. Looking only at the first would undercount rain and snow. |
 | 9 | Convert every weather measure to an explicit number type in staging | The same field is sometimes a decimal and sometimes a whole number. |
 | 10 | Decide "rainy" and "snowy" from the condition labels, not from rain or snow amounts | Amounts are missing for about two thirds of rain-labelled readings, so they cannot tell wet from dry. Amounts can still show intensity where present. |
-| 11 | Remove duplicate readings in staging, keeping one per timestamp | 27% of readings repeat a time already seen, which would double-count weather. |
+| 11 | Keep one reading per time in staging. A dbt test checks that readings sharing a time are exact copies | 27% of readings repeat a time already seen, which would double-count weather. If the repeats are exact copies, it does not matter which one is kept; the test warns if they are not. |
 | 12 | Use daily weather as the main grain, with hourly as a second view | Some hours probably have no reading, so daily figures are more complete. Hourly views must allow for gaps. |
 | 13 | Load RAW as received: trip values as text and each weather record as its original JSON, plus the source file, line number and load time | A value that does not fit a type cannot break the load or silently become blank. Every conversion happens in dbt, where it is visible and tested, and any row can be traced back to its file. |
 | 14 | Read empty fields and the text NULL in the trip files as missing values | That is how the files mark a missing value, so missing values always look the same in RAW. Hashmap's published version of the lab SQL does the same. |
@@ -151,11 +152,15 @@ Every start time converts to a timestamp, so every trip falls in one of the 24 h
 | 18 | Build the daily model on a full calendar, so the 4 closure days in the window appear with zero trips and a closure flag. Leave closed days out when measuring how riders respond to weather, and report the closures as a separate finding | A model built only from trip records would silently drop days with no trips, and with them the biggest weather effect in the data: snow that shut the system. But riders had no choice on those days, so counting them as rider behaviour would exaggerate the effect of snow. That leaves 721 open days in the window. |
 | 19 | dbt connects to Snowflake as the service user DBT_CLOUD_USER with a key pair, for both development and the scheduled job, which write to different schemas | A service user cannot sign in with a password, and the private key lives only in dbt and on my laptop, never in the repository. With one developer, a second Snowflake user for development would add setup without adding safety; in a team, each developer would use their own user. |
 | 20 | Run dbt on the v1 Latest release track instead of the default, v2 Stable | On the free Developer plan, v2 shows documentation only in Catalog, which that plan does not include. v1 Latest keeps dbt Docs, which I need to show the lineage and column descriptions. The YAML follows the newer conventions, so moving to v2 later is easy. |
+| 21 | Count every published trip, including very short trips that start and end at the same station | Citibike already removes staff trips, test-station trips and trips under 60 seconds before publishing. What remains are real rentals. |
+| 22 | Keep station and bike IDs as text | They are labels, not quantities. Text keeps any ID that is not a number intact. |
+| 23 | Build development models in DBT_DEV and production models in STAGING and MARTS | Work in progress never touches what Power BI reads. This uses generate_schema_name_for_env, which ships with dbt. |
+| 24 | Build the trip staging model as a table and the other staging models as views | 61 million rows of text are converted once, instead of again in every test and every model downstream. The weather model is small enough to stay a view. |
+| 25 | Count a reading as rain when any label is Rain, Drizzle or Thunderstorm, and as snow when any label is Snow | Drizzle is light rain, and thunderstorms in New York bring rain. Mist, Haze and Fog reduce visibility but are not rain. |
 
 ## Open questions
 
 - Do the project's own weather readings show snow or ice on 9 Feb and 14 to 16 Mar 2017? (Check in staging.)
 - Was service only partly running on the days just before or after each closure? (Check the daily trip counts around each closure.)
-- Are readings with the same time identical copies, or different readings? (Decides how to remove duplicates.)
-- Is 102 mm of snow in one hour real, or an error?
-- Should very short same-station trips count as real trips?
+- Are readings with the same time identical copies, or different readings? (The test assert_weather_repeats_are_identical answers this on every build.)
+- Is 102 mm of snow in one hour real, or an error? (A warning test on snow_1h_mm shows when it happened.)

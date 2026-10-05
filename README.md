@@ -34,20 +34,24 @@ Platform choices:
 | `setup/01_explore_raw.sql` | Exploration of the raw files before loading, with findings |
 | `setup/02_load_raw.sql` | Loads both sources into RAW, then checks the load |
 | `docs/assumptions.md` | Findings, assumptions and decisions, updated as the project goes |
-| `dbt_project.yml` | dbt project (models are added next) |
+| `dbt_project.yml`, `packages.yml` | dbt project settings and the dbt_utils package |
+| `macros/generate_schema_name.sql` | Development builds go to `DBT_DEV`; production builds go to `STAGING` and `MARTS` |
+| `models/staging/` | Sources, plus one cleaned model per source with its documentation and tests |
+| `tests/` | Data checks that span more than one column |
 
 ## How to rebuild
 
 1. In Snowsight, as ACCOUNTADMIN, run `setup/00_setup.sql`: the first line on its own, then Run All.
 2. Create a key pair and set the public key on `DBT_CLOUD_USER` (section 6 of `00_setup.sql`).
 3. As TRANSFORMER, run `setup/02_load_raw.sql` one statement at a time, and compare each check with the expected result in its comment.
-4. In dbt, run `dbt build` (once the models are in).
+4. In dbt (v1 Latest release track), run `dbt deps`, then `dbt build`.
 
 ## Status
 
 - [x] Snowflake platform
 - [x] Raw data explored and loaded: 61,468,359 trips and 57,894 weather readings, every check passed
-- [ ] dbt staging models and tests
+- [x] dbt platform connected to Snowflake (key pair) and GitHub
+- [ ] dbt staging models and tests (in progress)
 - [ ] dbt marts
 - [ ] Power BI report
 
