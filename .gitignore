@@ -1,0 +1,18 @@
+# Keys and secrets: never commit
+*.p8
+*.pem
+*.pub
+.env
+profiles.yml
+
+# dbt build output
+target/
+dbt_packages/
+logs/
+
+# Power BI cache files (keep the .pbix itself)
+*.pbix.bak
+
+# OS clutter
+.DS_Store
+Thumbs.db
