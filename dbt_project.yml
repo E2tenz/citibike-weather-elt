@@ -1,6 +1,7 @@
 # dbt project for the Citibike x Weather case study.
 # RAW tables are loaded by setup/02_load_raw.sql. dbt builds everything
-# after that: staging models (typed and cleaned) and marts (for Power BI).
+# after that: staging (typed and cleaned), intermediate (per hour and per
+# day) and marts (what Power BI reads).
 
 name: citibike_weather
 version: "1.0.0"
@@ -17,6 +18,17 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+vars:
+  # Analysis window: the days both sources cover in full (decision 2)
+  analysis_start_date: "2016-07-06"
+  analysis_end_date: "2018-06-30"
+  # Riding hours, 06:00 to 21:59, which hold 93% of all trips (decision 26)
+  daytime_first_hour: 6
+  daytime_last_hour: 21
+  # A day needs weather readings in at least this many of its 16 riding
+  # hours to be used in weather comparisons (decision 27)
+  min_daytime_weather_hours: 12
+
 models:
   citibike_weather:
     # Every query dbt runs is tagged, so its cost can be told apart from
@@ -25,3 +37,17 @@ models:
     staging:
       +schema: staging
       +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  citibike_weather:
+    +schema: reference
+    us_federal_holidays:
+      +column_types:
+        holiday_date: date
+        holiday_name: varchar

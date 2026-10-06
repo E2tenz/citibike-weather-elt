@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: int_weather__hourly
+    description: >
+      New York City weather per local hour, one row per hour with at least
+      one reading. An hour is rainy or snowy if any reading in it is.
+    columns:
+      - name: weather_hour
+        description: Start of the hour, New York local time.
+        data_tests:
+          - unique
+          - not_null
+      - name: readings
+        description: Number of readings in the hour.
+      - name: is_rain
+        description: True if any reading in the hour had a Rain, Drizzle or Thunderstorm label.
+        data_tests:
+          - not_null
+      - name: is_snow
+        description: True if any reading in the hour had a Snow label.
+        data_tests:
+          - not_null
+
+  - name: int_weather__daily
+    description: >
+      New York City weather per local day, with how many hours, and how many
+      riding hours (06:00 to 21:59), actually have readings.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "daytime_hours_with_weather <= hours_with_weather"
+    columns:
+      - name: weather_date
+        description: Local date.
+        data_tests:
+          - unique
+          - not_null
+      - name: hours_with_weather
+        description: Hours of the day with at least one reading, out of 24.
+      - name: daytime_hours_with_weather
+        description: Riding hours (06:00 to 21:59) with at least one reading, out of 16.
+      - name: daytime_rain_hours
+        description: Riding hours with rain.
+      - name: daytime_snow_hours
+        description: Riding hours with snow.
+
+  - name: int_trips__hourly
+    description: Citibike trips per local hour, by user type.
+    columns:
+      - name: trip_hour
+        description: Start of the hour, New York local time.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: int_trips__daily
+    description: >
+      Citibike trips per local day, by user type, with the median trip
+      length (trips over 24 hours left out).
+    columns:
+      - name: trip_date
+        description: Local date.
+        data_tests:
+          - unique
+          - not_null
+      - name: median_trip_minutes
+        description: Median trip length in minutes, leaving out trips over 24 hours.

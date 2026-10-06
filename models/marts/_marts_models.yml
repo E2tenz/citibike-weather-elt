@@ -1,0 +1,200 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: >
+      Calendar for the analysis window, 6 Jul 2016 to 30 Jun 2018, one row
+      per day. Power BI uses it as the date table for both fact tables.
+    columns:
+      - name: date_day
+        description: The date.
+        data_tests:
+          - unique
+          - not_null
+      - name: calendar_year
+        description: Year.
+      - name: month_number
+        description: Month, 1 to 12.
+      - name: month_name
+        description: Short month name, for example Jan.
+      - name: year_month
+        description: Year and month, for example 2017-03.
+      - name: day_of_week_number
+        description: Day of the week, 1 = Monday to 7 = Sunday.
+      - name: day_name
+        description: Short day name, for example Mon.
+      - name: is_weekend
+        description: True on Saturday and Sunday.
+      - name: is_holiday
+        description: True on a US federal holiday, including the weekday it is observed on.
+      - name: holiday_name
+        description: Name of the holiday, if any.
+      - name: day_type
+        description: Weekday, or Weekend or holiday. Holidays count as weekends (decision 29).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Weekday", "Weekend or holiday"]
+      - name: season
+        description: Meteorological season. Winter is December to February.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["Winter", "Spring", "Summer", "Autumn"]
+
+  - name: fct_daily_trips_weather
+    description: >
+      The main table for the analysis: one row per day in the window, with
+      trips by user type, the day's weather, and the change in trips
+      against a typical dry day of the same month and day type.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "subscriber_trips + customer_trips + unknown_user_trips = trips"
+    columns:
+      - name: date_day
+        description: The date. Links to dim_date.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: day_type
+        description: Weekday, or Weekend or holiday.
+      - name: is_system_closed
+        description: >
+          True when the day has no trips at all. In this window that happens
+          only on the snowstorm closures of 9 Feb 2017 and 14 to 16 Mar 2017
+          (decision 18). Closed days are left out of pct_vs_dry_day.
+        data_tests:
+          - not_null
+      - name: trips
+        description: Trips started that day.
+        data_tests:
+          - not_null
+      - name: subscriber_trips
+        description: Trips by annual members.
+      - name: customer_trips
+        description: Trips by 24-hour or 3-day pass holders.
+      - name: unknown_user_trips
+        description: Trips with no user type recorded.
+      - name: median_trip_minutes
+        description: Median trip length in minutes, leaving out trips over 24 hours.
+      - name: weather_category
+        description: >
+          The day's weather during riding hours (06:00 to 21:59): Snow if any
+          hour had snow, Rain if 3 or more hours had rain, Light rain if 1 or
+          2 did, otherwise Dry. "Not enough weather data" when fewer than 12
+          of the 16 riding hours have a reading (decisions 26, 27 and 30).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Dry", "Light rain", "Rain", "Snow", "Not enough weather data"]
+      - name: weather_category_sort
+        description: Sort order for weather_category in Power BI.
+      - name: temperature_band
+        description: Average temperature band. Empty on days with no weather readings.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["Below 0 C", "0 to 10 C", "10 to 20 C", "20 to 25 C", "25 C and above"]
+      - name: temperature_band_sort
+        description: Sort order for temperature_band in Power BI.
+      - name: avg_temp_c
+        description: Average of the hourly temperatures, Celsius.
+      - name: min_temp_c
+        description: Lowest temperature reading, Celsius.
+      - name: max_temp_c
+        description: Highest temperature reading, Celsius.
+      - name: avg_humidity_pct
+        description: Average relative humidity, percent.
+      - name: avg_wind_speed_ms
+        description: Average wind speed, metres per second.
+      - name: max_wind_gust_ms
+        description: Strongest gust reported, metres per second.
+      - name: daytime_rain_hours
+        description: Riding hours (06:00 to 21:59) with rain.
+      - name: daytime_snow_hours
+        description: Riding hours with snow.
+      - name: hours_with_weather
+        description: Hours of the day with at least one weather reading, out of 24.
+      - name: daytime_hours_with_weather
+        description: Riding hours with at least one weather reading, out of 16.
+      - name: has_enough_weather_data
+        description: True when at least 12 of the 16 riding hours have a reading (decision 27).
+      - name: dry_day_baseline_trips
+        description: >
+          Median trips on dry, open days in the same month of the same year
+          with the same day type. What a typical dry day looked like (decision 28).
+      - name: pct_vs_dry_day
+        description: >
+          Trips compared with dry_day_baseline_trips, as a fraction:
+          -0.25 means 25% fewer trips than a typical dry day. Empty on
+          closed days.
+      - name: dry_day_baseline_subscriber_trips
+        description: The same baseline, counting subscriber trips only.
+      - name: subscriber_pct_vs_dry_day
+        description: Subscriber trips compared with their own dry-day baseline, as a fraction.
+      - name: dry_day_baseline_customer_trips
+        description: The same baseline, counting customer trips only.
+      - name: customer_pct_vs_dry_day
+        description: Customer trips compared with their own dry-day baseline, as a fraction.
+
+  - name: fct_hourly_trips_weather
+    description: >
+      One row per local hour in the window, with trips by user type and the
+      weather in that hour. Used for the time-of-day view, for example how
+      rain at 08:00 affects the morning commute.
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "subscriber_trips + customer_trips + unknown_user_trips = trips"
+    columns:
+      - name: hour_start
+        description: Start of the hour, New York local time.
+        data_tests:
+          - unique
+          - not_null
+      - name: date_day
+        description: The date. Links to dim_date.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: hour_of_day
+        description: Hour of the day, 0 to 23.
+      - name: day_type
+        description: Weekday, or Weekend or holiday.
+      - name: is_system_closed
+        description: True when the whole day had no trips (a snowstorm closure).
+      - name: trips
+        description: Trips started in the hour.
+        data_tests:
+          - not_null
+      - name: subscriber_trips
+        description: Trips by annual members.
+      - name: customer_trips
+        description: Trips by 24-hour or 3-day pass holders.
+      - name: unknown_user_trips
+        description: Trips with no user type recorded.
+      - name: has_weather_reading
+        description: True when the weather feed has at least one reading in the hour.
+      - name: hour_weather
+        description: Snow, Rain or Dry for the hour, or No reading when the feed has nothing for it.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Dry", "Rain", "Snow", "No reading"]
+      - name: hour_weather_sort
+        description: Sort order for hour_weather in Power BI.
+      - name: temp_c
+        description: Average temperature in the hour, Celsius.
+      - name: rain_1h_mm
+        description: Largest rain amount reported in the hour, mm. Usually empty, even when it rained.

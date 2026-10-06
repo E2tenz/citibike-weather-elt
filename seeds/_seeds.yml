@@ -1,0 +1,18 @@
+version: 2
+
+seeds:
+  - name: us_federal_holidays
+    description: >
+      US federal holidays from 6 Jul 2016 to 30 Jun 2018, including the
+      weekday a holiday is observed on when it falls on a weekend. Generated
+      with the python-holidays package, which follows the US Office of
+      Personnel Management rules. Used to treat holidays like weekends
+      (decision 29).
+    columns:
+      - name: holiday_date
+        description: Date of the holiday, or the day it is observed.
+        data_tests:
+          - unique
+          - not_null
+      - name: holiday_name
+        description: Name of the holiday.
