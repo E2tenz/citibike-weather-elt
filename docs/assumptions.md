@@ -120,13 +120,36 @@ Every start time converts to a timestamp, so every trip falls in one of the 24 h
 
 07:00 to 09:59 holds 18.7% of all trips, and 16:00 to 18:59 holds 26.4%. The busiest hour has 56 times the trips of the quietest.
 
+## Staging results (6 Oct 2026, first `dbt build`)
+
+24 nodes (2 models and 22 tests): 23 passed, 1 warned, 0 failed.
+
+- All 61,468,359 trips came through staging, the same count as RAW.
+- **Repeated weather readings are exact copies.** The test comparing every repeat passed, so keeping one reading per time loses nothing.
+- User type is only Subscriber, Customer or Unknown, and the weather labels are only the 12 known ones.
+- **The large snow amounts do not affect the analysis.** The warning flagged 9 readings above 50 mm. Every snow amount above 20 mm (22 readings) falls between November 2018 and March 2019, after the analysis window ends. The values also come in half-inch steps: 25, 38, 51, 63.5, 76 and 102 mm are 1, 1.5, 2, 2.5, 3 and 4 inches. That looks like snow depth in inches, not snowfall per hour. Snow is decided from labels (decision 10), so these amounts are never used.
+- **Our weather data confirms Stella, but not the 9 Feb 2017 blizzard.** Readings around the closures:
+
+| Date | Readings | With snow | Temperature range |
+|---|---|---|---|
+| 8 Feb 2017 | 4 | 0 | 5.3 to 12.6 C |
+| 9 Feb 2017 (closed) | 3 | 0 | -6.7 to 0.7 C |
+| 10 Feb 2017 | 4 | 0 | -6.1 to -0.8 C |
+| 13 Mar 2017 | 6 | 3 | -7.3 to 0.7 C |
+| 14 Mar 2017 (closed) | 6 | 5 | -4.5 to -1.2 C |
+| 15 Mar 2017 (closed) | 5 | 4 | -6.6 to -3.9 C |
+| 16 Mar 2017 (closed) | 15 | 1 | -4.4 to 3.9 C |
+| 17 Mar 2017 | 23 | 0 | -2.4 to 7.6 C |
+
+An average day has about 20 readings; around both storms there are only 3 to 6. The weather data is thinnest exactly when the weather is worst. On 9 Feb it shows the temperature falling about 12 degrees, but not a single snow label. This is why the daily model measures how many hours each day are covered, and sets aside days without enough readings (decision 27).
+
 ## Assumptions
 
 1. **Trip timestamps are New York local time.** The files carry no time zone. **Confirmed after loading (check 5e):** trip starts peak at 08:00 and 17:00 and are lowest at 04:00, which is the commuter pattern in local time. If the times were UTC, the peaks would fall at 12:00 to 13:00 and 21:00 to 22:00.
 2. **Weather timestamps are UTC.** Unix time is UTC by definition.
 3. **One weather point represents the whole city.** All trips are matched to the New York City weather location, even though conditions can differ a little between boroughs.
 4. **Weather units follow OpenWeatherMap's standard set.** The files do not say; Kelvin temperatures point to it.
-5. **Days with no trips were system closures for snow.** The data has no closure field, but all 8 such days start on the day of a major snowstorm. I will check this against the project's own weather readings for the two 2017 closures, which fall inside the weather data.
+5. **Days with no trips were system closures for snow.** The data has no closure field, but all 8 such days start on the day of a major snowstorm. Our own readings show snow on every day of the March 2017 closure. On 9 Feb 2017 the feed has only 3 readings, too few to show the blizzard, but the National Weather Service recorded 24 cm of snow in Central Park that day.
 
 ## Decisions
 
@@ -157,10 +180,16 @@ Every start time converts to a timestamp, so every trip falls in one of the 24 h
 | 23 | Build development models in DBT_DEV and production models in STAGING and MARTS | Work in progress never touches what Power BI reads. This uses generate_schema_name_for_env, which ships with dbt. |
 | 24 | Build the trip staging model as a table and the other staging models as views | 61 million rows of text are converted once, instead of again in every test and every model downstream. The weather model is small enough to stay a view. |
 | 25 | Count a reading as rain when any label is Rain, Drizzle or Thunderstorm, and as snow when any label is Snow | Drizzle is light rain, and thunderstorms in New York bring rain. Mist, Haze and Fog reduce visibility but are not rain. |
+| 26 | Judge a day's weather on its riding hours, 06:00 to 21:59 | These 16 hours hold 93% of all trips. Rain at 03:00 does not stop anyone riding. |
+| 27 | Use a day in weather comparisons only if at least 12 of its 16 riding hours have a weather reading. Otherwise label it "Not enough weather data" | The feed is thin on some days, worst of all during storms (3 readings on 9 Feb 2017). Guessing the weather of those days would be less honest than setting them aside and saying how many there are. |
+| 28 | Compare each day with a typical dry day: the median trips of dry, open days in the same month and year with the same day type | This takes season, growth (18% a year) and the weekday pattern out of the comparison, as decision 17 requires. The median ignores the odd unusual day. |
+| 29 | Count US federal holidays as weekends | Commuting drops on holidays just as it does on a Saturday. 22 holidays fall in the window; the list comes from the python-holidays package, which follows the official US rules, and is stored as a dbt seed. |
+| 30 | Weather categories for a day: Snow if any riding hour had snow; Rain if 3 or more did; Light rain if 1 or 2 did; otherwise Dry | A single wet hour should not make a whole day count as rainy. The categories are easy to explain, and the rain hours stay in the data as a number for finer charts. |
+| 31 | Shape the marts as a star schema: a date dimension plus a daily and an hourly fact table | One date table filters both fact tables in Power BI, which is the standard pattern for date-based reports. |
+| 32 | Set the analysis window, the riding hours and the coverage threshold once, as dbt variables | Every model uses the same values, and changing one setting changes it everywhere. |
 
 ## Open questions
 
-- Do the project's own weather readings show snow or ice on 9 Feb and 14 to 16 Mar 2017? (Check in staging.)
 - Was service only partly running on the days just before or after each closure? (Check the daily trip counts around each closure.)
-- Are readings with the same time identical copies, or different readings? (The test assert_weather_repeats_are_identical answers this on every build.)
-- Is 102 mm of snow in one hour real, or an error? (A warning test on snow_1h_mm shows when it happened.)
+- How many days have too few weather readings to use? (Count them after the marts build.)
+- Are 1 to 2 and 3 or more rainy riding hours the right split between Light rain and Rain? (Check how the rain hours are spread.)
