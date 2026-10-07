@@ -143,6 +143,41 @@ Every start time converts to a timestamp, so every trip falls in one of the 24 h
 
 An average day has about 20 readings; around both storms there are only 3 to 6. The weather data is thinnest exactly when the weather is worst. On 9 Feb it shows the temperature falling about 12 degrees, but not a single snow label. This is why the daily model measures how many hours each day are covered, and sets aside days without enough readings (decision 27).
 
+## Marts results (6 Oct 2026, full `dbt build`)
+
+70 nodes (9 models, 1 seed and 60 tests): 69 passed, 1 warned (the known snow amounts), 0 failed. The reconciliation tests confirm that the daily table counts every trip in the window exactly once, the hourly table adds up to the daily one, and the only closed days are the four storm days.
+
+**First answer: how weather changes trips** (median change against a typical dry day in the same month, year and day type; 721 open days)
+
+| Day's weather | Days | All trips | Members | Casual riders |
+|---|---|---|---|---|
+| Dry | 205 | baseline | baseline | baseline |
+| Light rain (1 to 2 riding hours) | 67 | -0.2% | +0.3% | +4.8% |
+| Rain (3 or more riding hours) | 164 | -14.5% | -13.6% | -27.5% |
+| Snow | 43 | -30.1% | -27.8% | -58.6% |
+| Not enough weather data | 242 | not compared | | |
+
+- Rain cuts trips by about 15% and snow by about 30%. On the 4 closure days in the window, snow cut them by 100%.
+- Casual riders react about twice as strongly as members, to both rain and snow.
+- One or two wet hours make no measurable difference.
+- **Comparing like with like matters.** Raw averages say snow days have 57% fewer trips than dry days and light-rain days 6% more. Most of that is season: snow falls in winter, when few people ride anyway, and showers fall mostly in summer. Against the same month and day type, snow costs about 30% and light rain nothing.
+
+**Why 242 days have no weather category: the feed changed how often it records**
+
+| Riding hours with a reading (of 16) | Days |
+|---|---|
+| 0 to 4 | 177 |
+| 5 to 11 | 65 |
+| 12 to 16 | 479 |
+
+237 of the 242 days fall between July 2016 and April 2017. From October 2016 to February 2017 every single day is thin, with readings in only 2.5 to 3.7 of the 16 riding hours on average. From May 2017 the feed covers about 15 of 16 hours on almost every day. So this is not a few outages: the feed recorded only every few hours in its first months, then switched to about hourly. The weather comparisons therefore rest mostly on March 2017 to June 2018, which still covers every season, including the winter of 2017 to 2018.
+
+## Power BI connection (8 Oct 2026, `03_powerbi_access.sql`)
+
+- REPORTER now reads MARTS and nothing else. Checked as REPORTER with secondary roles switched off: the daily mart returns its 725 rows, and the same query on STAGING is refused.
+- Power BI signs in as POWERBI_USER with a key pair and loads the three marts in Import mode: 725 rows in dim_date, 725 in fct_daily_trips_weather and 17,400 in fct_hourly_trips_weather (725 days of 24 hours), the same as in Snowflake.
+- When a key-pair sign-in fails, Power BI only says it could not authenticate. Snowflake's login history gives the reason. Here it was JWT_TOKEN_INVALID_PUBLIC_KEY_FINGERPRINT_MISMATCH: the public key registered for the user did not belong to the private key Power BI sent. Registering the public key derived from the private key file, and comparing the two fingerprints before connecting, fixed it. Both checks are now part of `03_powerbi_access.sql`.
+
 ## Assumptions
 
 1. **Trip timestamps are New York local time.** The files carry no time zone. **Confirmed after loading (check 5e):** trip starts peak at 08:00 and 17:00 and are lowest at 04:00, which is the commuter pattern in local time. If the times were UTC, the peaks would fall at 12:00 to 13:00 and 21:00 to 22:00.
@@ -177,19 +212,22 @@ An average day has about 20 readings; around both storms there are only 3 to 6. 
 | 20 | Run dbt on the v1 Latest release track instead of the default, v2 Stable | On the free Developer plan, v2 shows documentation only in Catalog, which that plan does not include. v1 Latest keeps dbt Docs, which I need to show the lineage and column descriptions. The YAML follows the newer conventions, so moving to v2 later is easy. |
 | 21 | Count every published trip, including very short trips that start and end at the same station | Citibike already removes staff trips, test-station trips and trips under 60 seconds before publishing. What remains are real rentals. |
 | 22 | Keep station and bike IDs as text | They are labels, not quantities. Text keeps any ID that is not a number intact. |
-| 23 | Build development models in DBT_DEV and production models in STAGING and MARTS | Work in progress never touches what Power BI reads. This uses generate_schema_name_for_env, which ships with dbt. |
+| 23 | Build development models in DBT_DEV and production models in STAGING, INTERMEDIATE, MARTS and REFERENCE | Work in progress never touches what Power BI reads. This uses generate_schema_name_for_env, which ships with dbt. |
 | 24 | Build the trip staging model as a table and the other staging models as views | 61 million rows of text are converted once, instead of again in every test and every model downstream. The weather model is small enough to stay a view. |
 | 25 | Count a reading as rain when any label is Rain, Drizzle or Thunderstorm, and as snow when any label is Snow | Drizzle is light rain, and thunderstorms in New York bring rain. Mist, Haze and Fog reduce visibility but are not rain. |
 | 26 | Judge a day's weather on its riding hours, 06:00 to 21:59 | These 16 hours hold 93% of all trips. Rain at 03:00 does not stop anyone riding. |
-| 27 | Use a day in weather comparisons only if at least 12 of its 16 riding hours have a weather reading. Otherwise label it "Not enough weather data" | The feed is thin on some days, worst of all during storms (3 readings on 9 Feb 2017). Guessing the weather of those days would be less honest than setting them aside and saying how many there are. |
+| 27 | Use a day in weather comparisons only if at least 12 of its 16 riding hours have a weather reading. Otherwise label it "Not enough weather data" | The feed is thin on some days, worst of all during storms (3 readings on 9 Feb 2017). Guessing the weather of those days would be less honest than setting them aside and saying how many there are. Checked after the build: 242 days fall below the line, almost all from July 2016 to April 2017, when the feed recorded only every few hours. Counting rain hours from 3 readings a day would undercount rain, so the rule stays. 479 days still qualify, covering every season. |
 | 28 | Compare each day with a typical dry day: the median trips of dry, open days in the same month and year with the same day type | This takes season, growth (18% a year) and the weekday pattern out of the comparison, as decision 17 requires. The median ignores the odd unusual day. |
 | 29 | Count US federal holidays as weekends | Commuting drops on holidays just as it does on a Saturday. 22 holidays fall in the window; the list comes from the python-holidays package, which follows the official US rules, and is stored as a dbt seed. |
 | 30 | Weather categories for a day: Snow if any riding hour had snow; Rain if 3 or more did; Light rain if 1 or 2 did; otherwise Dry | A single wet hour should not make a whole day count as rainy. The categories are easy to explain, and the rain hours stay in the data as a number for finer charts. |
 | 31 | Shape the marts as a star schema: a date dimension plus a daily and an hourly fact table | One date table filters both fact tables in Power BI, which is the standard pattern for date-based reports. |
 | 32 | Set the analysis window, the riding hours and the coverage threshold once, as dbt variables | Every model uses the same values, and changing one setting changes it everywhere. |
+| 33 | Limit REPORTER to the MARTS schema | Power BI needs only the marts. Staging holds 61 million trip-level rows and intermediate tables are building blocks that may change, so keeping the report role out of them follows least privilege and keeps reports on the tested, documented layer. |
+| 34 | Power BI connects as its own service user, POWERBI_USER, with a key pair and only the REPORTER role | There is no password to leak or expire, and it is separate from dbt's user, so either can be cut off without affecting the other. |
+| 35 | Load the marts into Power BI in Import mode, not DirectQuery | About 19,000 rows of historical data that does not change. Imported data makes every visual fast, uses no warehouse credits per click, and the report keeps working without a live connection. |
+| 36 | Give each computer that runs Power BI its own key, and check the fingerprint before connecting | Each key can be removed on its own: a second computer uses the user's second key slot (RSA_PUBLIC_KEY_2), which is unset when it is no longer needed. Comparing the fingerprint in Snowflake with the key file catches a mismatched key before Power BI tries to sign in. |
 
 ## Open questions
 
 - Was service only partly running on the days just before or after each closure? (Check the daily trip counts around each closure.)
-- How many days have too few weather readings to use? (Count them after the marts build.)
-- Are 1 to 2 and 3 or more rainy riding hours the right split between Light rain and Rain? (Check how the rain hours are spread.)
+- Are 1 to 2 and 3 or more rainy riding hours the right split between Light rain and Rain? Light rain shows no effect at all, so the split looks sensible; a chart of trips against rain hours in Power BI will show it directly.
